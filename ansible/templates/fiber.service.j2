@@ -1,0 +1,20 @@
+[Unit]
+Description=Fiber {{ node_class }} node - {{ node_name }}-{{ fiber_instance }}
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory={{ fiber_dir }}
+ExecStart={{ fiber_dir }}/fnn -c {{ fiber_dir }}/config.yml -d {{ fiber_dir }}/
+Environment="FIBER_SECRET_KEY_PASSWORD={{ secret_key_password }}"
+Environment="RUST_LOG=info,fnn=debug"
+StandardOutput=append:{{ fiber_dir }}/logs/node.log
+StandardError=append:{{ fiber_dir }}/logs/node.log
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,85 @@
+---
+- name: Deploy node_exporter on Linux hosts
+  hosts: all
+  become: yes
+  vars:
+    node_exporter_version: "1.9.1"
+    node_exporter_url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    node_exporter_user: "node_exporter"
+    node_exporter_group: "node_exporter"
+    node_exporter_install_dir: "/opt/node_exporter"
+    node_exporter_binary: "{{ node_exporter_install_dir }}/node_exporter"
+    node_exporter_service_file: "/etc/systemd/system/node_exporter.service"
+
+  tasks:
+    - name: Create node_exporter user
+      user:
+        name: "{{ node_exporter_user }}"
+        system: yes
+        shell: /sbin/nologin
+        create_home: no
+        state: present
+
+    - name: Create node_exporter group
+      group:
+        name: "{{ node_exporter_group }}"
+        system: yes
+        state: present
+
+    - name: Create installation directory
+      file:
+        path: "{{ node_exporter_install_dir }}"
+        state: directory
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+        mode: '0755'
+
+    - name: Download node_exporter
+      get_url:
+        url: "{{ node_exporter_url }}"
+        dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Unarchive node_exporter
+      unarchive:
+        src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        dest: "{{ node_exporter_install_dir }}"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+        owner: "{{ node_exporter_user }}"
+        group: "{{ node_exporter_group }}"
+
+    - name: Create systemd service file
+      copy:
+        dest: "{{ node_exporter_service_file }}"
+        content: |
+          [Unit]
+          Description=Node Exporter
+          Wants=network-online.target
+          After=network-online.target
+
+          [Service]
+          User={{ node_exporter_user }}
+          Group={{ node_exporter_group }}
+          Type=simple
+          ExecStart={{ node_exporter_binary }} --web.listen-address=:8229 --collector.systemd
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+        mode: '0644'
+
+    - name: Reload systemd daemon
+      systemd:
+        daemon_reload: yes
+
+    - name: Enable and start node_exporter service
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+
+    - name: Clean up downloaded tarball
+      file:
+        path: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+        state: absent

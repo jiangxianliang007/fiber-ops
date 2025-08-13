@@ -1,0 +1,17 @@
+# 部署控制参数
+deployment_phases:
+  - name: "Core nodes"
+    groups: "Core"
+    batch_size: 5
+  
+  - name: "Secondary nodes"
+    groups: "Secondary"
+    batch_size: 10
+    
+  - name: "Edge nodes"
+    groups: "Edge"
+    batch_size: 15
+
+# 通用参数
+fiber_version: "0.6.0-rc2"
+secret_key_password: "XsssM2f*******"

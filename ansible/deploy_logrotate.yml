@@ -1,0 +1,32 @@
+---
+- name: Configure log rotation for multiple fiber nodes
+  hosts: all
+  become: yes
+
+  tasks:
+    - name: Install logrotate if not present
+      apt:
+        name: logrotate
+        state: present
+      when: ansible_pkg_mgr == 'apt'
+
+    - name: Configure logrotate for all fiber node logs
+      copy:
+        dest: /etc/logrotate.d/fiber-nodes
+        content: |
+          /home/ubuntu/fiber*/logs/node.log {
+              daily
+              missingok
+              rotate 5
+              notifempty
+              copytruncate
+              dateext
+              dateformat -%Y-%m-%d
+              sharedscripts
+              postrotate
+                  [ ! -f /var/run/syslogd.pid ] || kill -USR1 `cat /var/run/syslogd.pid`
+              endscript
+          }
+        owner: root
+        group: root
+        mode: '0644'

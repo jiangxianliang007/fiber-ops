@@ -1,0 +1,150 @@
+- name: Deploy Fiber nodes
+  hosts: "{{ target_groups | default('fiber_test') }}"
+  become: yes
+  gather_facts: no  
+  vars:
+    fiber_binary_url: "https://github.com/nervosnetwork/fiber/releases/download/v{{ fiber_version }}/fnn_v{{ fiber_version }}-x86_64-linux-portable.tar.gz"
+
+  tasks:
+    - name: Set node identifiers
+      set_fact:
+        fiber_instance: "{{ inventory_hostname.split('-')[-1] }}"
+        node_name: "{{ inventory_hostname }}"
+        node_class: "{{ 'core' if 'Core' in group_names else 'secondary' if 'Secondary' in group_names else 'edge' }}"
+      tags: [always]
+
+    - name: Stop fiber service
+      systemd:
+        name: "fiber-{{ fiber_instance }}"
+        state: stopped
+      ignore_errors: yes
+      tags: [stop, cleanup, binary_update, config_update]
+
+    - name: Check fiber service status
+      command: systemctl status "fiber-{{ fiber_instance }}"
+      register: service_status
+      changed_when: false
+      failed_when: false
+      tags: [status]
+
+    - name: Display fiber service status
+      debug:
+        msg: "Fiber service status for {{ fiber_instance }}: {{ 'running' if 'active (running)' in service_status.stdout else 'stopped or not installed' }}"
+      tags: [status]
+
+    - name: Start fiber service manually
+      systemd:
+        name: "fiber-{{ fiber_instance }}"
+        state: started
+        enabled: yes
+      tags: [start]
+
+    - name: Clean up previous data
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ fiber_dir }}/fnn"
+        - "{{ fiber_dir }}/fnn-migrate"
+        - "{{ fiber_dir }}/ckb/key"
+        - "{{ fiber_dir }}/config.yml"
+        - "{{ fiber_dir }}/logs"
+        - "{{ fiber_dir }}/fiber"
+      tags: [cleanup]
+
+    - name: Create fiber directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: 0755
+      loop:
+        - "{{ fiber_dir }}"
+        - "{{ fiber_dir }}/ckb"
+        - "{{ fiber_dir }}/logs"
+        - "{{ fiber_dir }}/fiber"
+      tags: [full_deploy, binary_update]
+
+    - name: Download fiber package
+      ansible.builtin.get_url:
+        url: "{{ fiber_binary_url }}"
+        dest: "{{ fiber_dir }}/fiber.tar.gz"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0644
+        timeout: 60
+      register: download_result
+      retries: 3
+      delay: 10
+      until: download_result is success
+      tags: [binary_update, full_deploy]
+
+    - name: Extract binaries to deployment directory
+      ansible.builtin.unarchive:
+        src: "{{ fiber_dir }}/fiber.tar.gz"
+        dest: "{{ fiber_dir }}"
+        remote_src: yes
+        owner: ubuntu
+        group: ubuntu
+        mode: 0755
+      register: extract_result
+      retries: 3
+      delay: 5
+      until: extract_result is success
+      tags: [binary_update, full_deploy]
+
+    - name: Remove downloaded tar.gz file
+      file:
+        path: "{{ fiber_dir }}/fiber.tar.gz"
+        state: absent
+      ignore_errors: yes
+      tags: [binary_update, full_deploy]
+
+    - name: Deploy CKB private key
+      copy:
+        content: "{{ ckb_key }}"
+        dest: "{{ fiber_dir }}/ckb/key"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0600
+      no_log: true
+      tags: [config_update, full_deploy]
+
+    - name: Configure fiber node
+      template:
+        src: "templates/config.yml.j2"
+        dest: "{{ fiber_dir }}/config.yml"
+        owner: ubuntu
+        group: ubuntu
+        mode: 0644
+      tags: [config_update, full_deploy]
+
+    - name: Setup systemd service
+      template:
+        src: "templates/fiber.service.j2"
+        dest: "/etc/systemd/system/fiber-{{ fiber_instance }}.service"
+        owner: root
+        group: root
+        mode: 0644
+      notify: reload systemd
+      tags: [full_deploy]
+
+    - name: Restart fiber service after update
+      systemd:
+        name: "fiber-{{ fiber_instance }}"
+        state: restarted
+        enabled: yes
+        daemon_reload: yes
+      tags: [binary_update, config_update, full_deploy]
+
+    - name: Clear node log files
+      ansible.builtin.shell: >
+        find "{{ fiber_dir }}/logs" -type f -name "node.log-*" -exec truncate -s 0 {} \;
+      when: fiber_dir is defined
+      tags: [delete_logs]
+
+  handlers:
+    - name: reload systemd
+      systemd:
+        daemon_reload: yes

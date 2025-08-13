@@ -1,0 +1,16 @@
+---
+- name: Controlled fiber deployment
+  hosts: localhost
+  connection: local
+  vars_files:
+    - group_vars/all.yml
+
+  tasks:
+    - name: Run deployment phases
+      include_tasks: deploy_fiber.yml
+      vars:
+        target_groups: "{{ phase.groups }}"
+      loop: "{{ deployment_phases }}"
+      loop_control:
+        loop_var: phase
+        label: "{{ phase.name }}"
