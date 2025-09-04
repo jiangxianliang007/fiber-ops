@@ -64,7 +64,7 @@
         - "{{ fiber_dir }}/ckb"
         - "{{ fiber_dir }}/logs"
         - "{{ fiber_dir }}/fiber"
-      tags: [full_deploy, binary_update]
+      tags: [full_deploy]
 
     - name: Download fiber package
       ansible.builtin.get_url:
@@ -140,9 +140,14 @@
 
     - name: Clear node log files
       ansible.builtin.shell: >
-        find "{{ fiber_dir }}/logs" -type f -name "node.log-*" -exec truncate -s 0 {} \;
+        find "{{ fiber_dir }}/logs" -type f -name "*.log-*" -exec truncate -s 0 {} \;
       when: fiber_dir is defined
       tags: [delete_logs]
+
+    - name: delete node LOG.old
+      ansible.builtin.shell:
+        cmd: "rm -f {{ fiber_dir }}/fiber/store/LOG.old.*"
+      tags: [delete_dblog]
 
   handlers:
     - name: reload systemd

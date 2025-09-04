@@ -1,0 +1,8 @@
+- name: 修改主机名
+  hosts: all
+  become: yes
+  tasks:
+    - name: 设置主机名
+      hostname:
+        name: "{{ inventory_hostname }}"
+      when: inventory_hostname != ansible_hostname

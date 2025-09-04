@@ -1,0 +1,17 @@
+---
+- name: Deploy shell script from templates and setup cron job
+  hosts: all
+  become: yes 
+  tasks:
+    - name: Copy shell script from templates to target servers
+      template:
+        src: "templates/monitor_logs.sh.j2"
+        dest: /usr/local/bin/monitor_logs.sh
+        mode: '0755'  
+
+    - name: Ensure cron job exists for script
+      cron:
+        name: "Run script every 5 minutes"
+        minute: "*/10"
+        job: "/usr/local/bin/monitor_logs.sh"
+        state: present

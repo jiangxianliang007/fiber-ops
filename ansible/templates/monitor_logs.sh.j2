@@ -1,0 +1,85 @@
+#!/bin/bash
+
+# 配置部分
+LOG_PATHS="/home/ubuntu/fiber*/logs/node.log"
+DISCORD_WEBHOOK="{{ discord_webhook_url }}"
+STATE_DIR="/var/tmp/fiber_alerts"
+LOG_TIMEOUT_MINUTES=5
+MAX_LINES=6
+
+# 初始化环境
+mkdir -p "${STATE_DIR}"
+CURRENT_TIME=$(date +%s)
+TIMEOUT_SECONDS=$((LOG_TIMEOUT_MINUTES * 60))
+TEMP_FILE=$(mktemp)
+
+# 获取主机信息
+IP_ADDR="{{ ansible_host }}"
+
+# 函数：将ISO时间转换为Unix时间戳
+iso_to_timestamp() {
+    date -d "${1}" +%s 2>/dev/null || echo 0
+}
+
+# 处理每个日志文件
+for LOG_FILE in ${LOG_PATHS}; do
+    [ ! -f "${LOG_FILE}" ] && continue
+
+    # 为每个日志文件创建状态文件
+    STATE_FILE="${STATE_DIR}/$(echo "${LOG_FILE}" | tr '/' '_')"
+    [ ! -f "${STATE_FILE}" ] && echo "0" > "${STATE_FILE}"
+
+    # 获取上次读取的位置和当前大小
+    LAST_POS=$(cat "${STATE_FILE}")
+    CURRENT_SIZE=$(stat -c %s "${LOG_FILE}")
+
+    # 只处理新增内容
+    if [ "${CURRENT_SIZE}" -gt "${LAST_POS}" ]; then
+        # 1. 处理带时间戳的ERROR日志
+        tail -c +$((LAST_POS + 1)) "${LOG_FILE}" 2>/dev/null | \
+            grep -E "ERROR" | grep -v -E "no path found|not found|Unknown\(OutPoint|TlcAmountExceedLimit|TlcExpirySoon|too soon" | \
+            while read -r line; do
+                if [[ "${line}" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
+                    log_time="${BASH_REMATCH[1]}"
+                    timestamp=$(iso_to_timestamp "${log_time}")
+                    if [ $((CURRENT_TIME - timestamp)) -le ${TIMEOUT_SECONDS} ]; then
+                        error_message=$(echo "${line}" | sed "s/${log_time}\.[0-9]\+Z //")
+                        echo "[${LOG_FILE}] [${log_time}] ${error_message}" >> "${TEMP_FILE}"
+                    fi
+                fi
+            done
+
+        # 2. 处理PANIC日志（单行模式）
+        tail -c +$((LAST_POS + 1)) "${LOG_FILE}" 2>/dev/null | \
+            grep "panicked" | \
+            awk -v logfile="${LOG_FILE}" '{print "[" logfile "] " $0}' >> "${TEMP_FILE}"
+    fi
+
+    # 更新状态文件
+    echo "${CURRENT_SIZE}" > "${STATE_FILE}"
+done
+
+# 发送告警（如果有新错误）
+if [ -s "${TEMP_FILE}" ]; then
+    # 格式化消息内容
+    ERROR_HEADER="**Fiber节点告警** - (${IP_ADDR}) 完整日志请登录服务器查看，最近错误日志："
+    ERROR_CONTENT=$(head -n ${MAX_LINES} "${TEMP_FILE}")
+    FULL_MESSAGE="${ERROR_HEADER}\n\`\`\`\n${ERROR_CONTENT}\n\`\`\`"
+
+    # 优先使用jq，失败时使用python备用方案
+    if command -v jq >/dev/null; then
+        JSON_DATA=$(jq -n --arg msg "${FULL_MESSAGE}" '{"content": $msg}')
+    else
+        JSON_DATA=$(python3 -c "import json; print(json.dumps({'content': '''${FULL_MESSAGE}'''}))")
+    fi
+
+    curl -H "Content-Type: application/json" \
+         -X POST \
+         -d "${JSON_DATA}" \
+         "${DISCORD_WEBHOOK}" >/dev/null 2>&1
+
+    echo "$(date) - 发送告警: $(wc -l < "${TEMP_FILE}")条新错误" >> /var/log/fiber_monitor.log
+fi
+
+# 清理临时文件
+rm -f "${TEMP_FILE}"

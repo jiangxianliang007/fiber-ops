@@ -15,13 +15,13 @@
         dest: /etc/logrotate.d/fiber-nodes
         content: |
           /home/ubuntu/fiber*/logs/node.log {
-              daily
+              hourly
               missingok
-              rotate 5
+              rotate 168
               notifempty
               copytruncate
               dateext
-              dateformat -%Y-%m-%d
+              dateformat -%Y-%m-%d-%H
               sharedscripts
               postrotate
                   [ ! -f /var/run/syslogd.pid ] || kill -USR1 `cat /var/run/syslogd.pid`
@@ -30,3 +30,11 @@
         owner: root
         group: root
         mode: '0644'
+
+    - name: Add hourly logrotate cron job
+      cron:
+        name: "Hourly logrotate for fiber logs"
+        job: "/usr/sbin/logrotate /etc/logrotate.d/fiber-nodes"
+        user: root
+        minute: "0"
+        state: present          
