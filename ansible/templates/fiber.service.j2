@@ -9,7 +9,8 @@ Group=ubuntu
 WorkingDirectory={{ fiber_dir }}
 ExecStart={{ fiber_dir }}/fnn -c {{ fiber_dir }}/config.yml -d {{ fiber_dir }}/
 Environment="FIBER_SECRET_KEY_PASSWORD={{ secret_key_password }}"
-Environment="RUST_LOG=info,fnn=debug"
+Environment="RUST_LOG=info,fnn=debug,fnn::fiber::graph=info"
+#Environment="RUST_LOG=info,fnn={{ loglevel }},tentacle=trace,tokio_yamux=trace,tentacle_secio=trace"
 StandardOutput=append:{{ fiber_dir }}/logs/node.log
 StandardError=append:{{ fiber_dir }}/logs/node.log
 Restart=on-failure

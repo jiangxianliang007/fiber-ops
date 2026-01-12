@@ -37,7 +37,7 @@ for LOG_FILE in ${LOG_PATHS}; do
     if [ "${CURRENT_SIZE}" -gt "${LAST_POS}" ]; then
         # 1. 处理带时间戳的ERROR日志
         tail -c +$((LAST_POS + 1)) "${LOG_FILE}" 2>/dev/null | \
-            grep -E "ERROR" | grep -v -E "no path found|not found|Unknown\(OutPoint|TlcAmountExceedLimit|TlcExpirySoon|too soon" | \
+            grep -E "ERROR" | grep -v -E "no path found|not found|NoPathFound|Trying to remove non-existing tlc|Unknown\(OutPoint|TlcAmountExceedLimit|TlcExpirySoon|too soon" | \
             while read -r line; do
                 if [[ "${line}" =~ ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}) ]]; then
                     log_time="${BASH_REMATCH[1]}"
@@ -61,16 +61,25 @@ done
 
 # 发送告警（如果有新错误）
 if [ -s "${TEMP_FILE}" ]; then
-    # 格式化消息内容
+    MAX_CHARS=1800
     ERROR_HEADER="**Fiber节点告警** - (${IP_ADDR}) 完整日志请登录服务器查看，最近错误日志："
-    ERROR_CONTENT=$(head -n ${MAX_LINES} "${TEMP_FILE}")
-    FULL_MESSAGE="${ERROR_HEADER}\n\`\`\`\n${ERROR_CONTENT}\n\`\`\`"
 
-    # 优先使用jq，失败时使用python备用方案
+    # 读取错误内容
+    ERROR_CONTENT=$(head -n ${MAX_LINES} "${TEMP_FILE}")
+
+    # 截断过长的日志（保留前1500字符 + 省略号）
+    if [ $(echo -n "${ERROR_CONTENT}" | wc -c) -gt $((MAX_CHARS - 300)) ]; then
+        ERROR_CONTENT=$(echo -n "${ERROR_CONTENT}" | head -c $((MAX_CHARS - 300)))
+        ERROR_CONTENT="${ERROR_CONTENT}...\n【日志过长已被截断】"
+    fi
+
+    # 发送消息
+    MESSAGE="${ERROR_HEADER}\n\`\`\`\n${ERROR_CONTENT}\n\`\`\`"
+
     if command -v jq >/dev/null; then
-        JSON_DATA=$(jq -n --arg msg "${FULL_MESSAGE}" '{"content": $msg}')
+        JSON_DATA=$(jq -n --arg msg "${MESSAGE}" '{"content": $msg}')
     else
-        JSON_DATA=$(python3 -c "import json; print(json.dumps({'content': '''${FULL_MESSAGE}'''}))")
+        JSON_DATA=$(python3 -c "import json; print(json.dumps({'content': '''${MESSAGE}'''}))")
     fi
 
     curl -H "Content-Type: application/json" \
@@ -81,5 +90,4 @@ if [ -s "${TEMP_FILE}" ]; then
     echo "$(date) - 发送告警: $(wc -l < "${TEMP_FILE}")条新错误" >> /var/log/fiber_monitor.log
 fi
 
-# 清理临时文件
 rm -f "${TEMP_FILE}"
