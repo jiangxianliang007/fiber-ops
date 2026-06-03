@@ -12,90 +12,82 @@ ids_schema:
   outpoint: "CKB outpoint"
   tlc_id: "TLC id"
 
-capabilities:
-  lookup_channel:
-    description: Query channel details when channel_id is available
-    rpc: list_channels
-    requires_any:
-      - ids.channel_id
+rpc_templates:
+  node_info:
+    method: node_info
+    params: []
 
-  lookup_peer:
-    description: Query peer details when peer_pubkey is available
-    rpc: list_peers
-    requires_any:
-      - ids.peer_pubkey
+  list_peers:
+    method: list_peers
+    params: []
 
-  lookup_payment:
-    description: Query payment session details when payment_hash is available
-    rpc: get_payment
-    requires_any:
-      - ids.payment_hash
+  list_channels:
+    method: list_channels
+    params:
+      - {}
 
-  lookup_transaction:
-    description: Query transaction details when tx_hash is available
-    rpc: get_transaction
-    requires_any:
-      - ids.tx_hash
+  list_channels_include_closed:
+    method: list_channels
+    params:
+      - include_closed: true
 
-  lookup_outpoint:
-    description: Query a live cell when outpoint is available
-    rpc: get_live_cell
-    requires_any:
-      - ids.outpoint
-
-  search_recent_logs:
-    description: Search recent logs in observability backend
-    rpc: search_logs
-    requires_any:
-      - component
-      - error_type
+  get_payment_by_hash:
+    method: get_payment
+    params:
+      - payment_hash: "{{ ids.payment_hash }}"
 
 runbooks:
+  - error_type: ChannelNotFound
+    category: channel-state
+    severity: warning
+    queries:
+      - node_info
+      - list_peers
+      - list_channels_include_closed
+    report_title: "Channel not found"
+    summary: "A channel-related operation referenced a channel actor/state that could not be found."
+    fallback_summary: "Insufficient context for live checks; likely closed, peer disconnected, or internal channel-state inconsistency."
+
   - error_type: TlcAmountExceedLimit
     category: liquidity
     severity: warning
-    fingerprint_fields:
-      - error_type
-      - ids.channel_id
-    dedup_window_minutes: 5
-    recheck_window_minutes: 20
-    preferred_capabilities:
-      - lookup_channel
-      - lookup_peer
-      - search_recent_logs
+    queries:
+      - node_info
+      - list_peers
+      - list_channels
     report_title: "TLC amount exceeds channel limit"
     summary: "The requested TLC amount exceeds the channel's currently sendable outbound liquidity."
     fallback_summary: "Insufficient context for live checks; likely outbound liquidity exhaustion based on error type alone."
 
-  - error_type: ChannelNotFound
-    category: channel-state
+  - error_type: RemoveSettledTlcFailed
+    category: tlc-cleanup
     severity: warning
-    fingerprint_fields:
-      - error_type
-      - ids.channel_id
-    dedup_window_minutes: 5
-    recheck_window_minutes: 30
-    preferred_capabilities:
-      - lookup_channel
-      - lookup_peer
-      - search_recent_logs
-    report_title: "Channel not found"
-    summary: "A channel-related operation referenced a channel actor/state that could not be found."
-    fallback_summary: "Insufficient context for live checks; likely closed, not restored, or inconsistent channel state."
+    queries:
+      - node_info
+      - list_peers
+      - list_channels_include_closed
+    report_title: "Failed to remove settled TLC"
+    summary: "A settled TLC cleanup operation failed and may indicate peer unavailability or channel-state inconsistency."
+    fallback_summary: "Insufficient context for live checks; likely a stuck TLC cleanup or peer disconnected case."
 
-  - error_type: TransactionFailedToResolve
-    category: chain-rpc
-    severity: error
-    fingerprint_fields:
-      - error_type
-      - ids.tx_hash
-      - ids.outpoint
-    dedup_window_minutes: 10
-    recheck_window_minutes: 30
-    preferred_capabilities:
-      - lookup_transaction
-      - lookup_outpoint
-      - search_recent_logs
-    report_title: "Transaction failed to resolve"
-    summary: "CKB node could not resolve one or more transaction dependencies or inputs."
-    fallback_summary: "Insufficient context for live checks; likely missing, spent, or not-yet-visible input/dependency."
+  - error_type: PaymentRelated
+    category: payment
+    severity: warning
+    queries:
+      - node_info
+      - list_peers
+      - list_channels
+      - get_payment_by_hash
+    report_title: "Payment-related error"
+    summary: "A payment-related error occurred and the payment context should be inspected when a payment hash is available."
+    fallback_summary: "Insufficient context for live checks; payment status unavailable or payment hash missing."
+
+  - error_type: Unknown
+    category: unknown
+    severity: warning
+    queries:
+      - node_info
+      - list_peers
+    report_title: "Unknown Fiber error"
+    summary: "An unclassified Fiber error occurred."
+    fallback_summary: "Insufficient context for live checks; only basic node and peer context was collected."
