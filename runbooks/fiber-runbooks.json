@@ -1,0 +1,114 @@
+{
+  "version": 1,
+  "metadata": {
+    "project": "fiber-ops",
+    "description": "Minimal Fiber alert runbook configuration for n8n/AI diagnostics"
+  },
+  "ids_schema": {
+    "channel_id": "Fiber channel id (Hash256)",
+    "peer_pubkey": "Peer public key",
+    "payment_hash": "Payment hash",
+    "tx_hash": "CKB transaction hash",
+    "outpoint": "CKB outpoint",
+    "tlc_id": "TLC id"
+  },
+  "rpc_templates": {
+    "node_info": {
+      "method": "node_info",
+      "params": []
+    },
+    "list_peers": {
+      "method": "list_peers",
+      "params": []
+    },
+    "list_channels": {
+      "method": "list_channels",
+      "params": [
+        {}
+      ]
+    },
+    "list_channels_include_closed": {
+      "method": "list_channels",
+      "params": [
+        {
+          "include_closed": true
+        }
+      ]
+    },
+    "get_payment_by_hash": {
+      "method": "get_payment",
+      "params": [
+        {
+          "payment_hash": "{{ ids.payment_hash }}"
+        }
+      ]
+    }
+  },
+  "runbooks": [
+    {
+      "error_type": "ChannelNotFound",
+      "category": "channel-state",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Channel not found",
+      "summary": "A channel-related operation referenced a channel actor/state that could not be found.",
+      "fallback_summary": "Insufficient context for live checks; likely closed, peer disconnected, or internal channel-state inconsistency."
+    },
+    {
+      "error_type": "TlcAmountExceedLimit",
+      "category": "liquidity",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "TLC amount exceeds channel limit",
+      "summary": "The requested TLC amount exceeds the channel's currently sendable outbound liquidity.",
+      "fallback_summary": "Insufficient context for live checks; likely outbound liquidity exhaustion based on error type alone."
+    },
+    {
+      "error_type": "RemoveSettledTlcFailed",
+      "category": "tlc-cleanup",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Failed to remove settled TLC",
+      "summary": "A settled TLC cleanup operation failed and may indicate peer unavailability or channel-state inconsistency.",
+      "fallback_summary": "Insufficient context for live checks; likely a stuck TLC cleanup or peer disconnected case."
+    },
+    {
+      "error_type": "PaymentRelated",
+      "category": "payment",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Payment-related error",
+      "summary": "A payment-related error occurred and the payment context should be inspected when a payment hash is available.",
+      "fallback_summary": "Insufficient context for live checks; payment status unavailable or payment hash missing."
+    },
+    {
+      "error_type": "Unknown",
+      "category": "unknown",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Unknown Fiber error",
+      "summary": "An unclassified Fiber error occurred.",
+      "fallback_summary": "Insufficient context for live checks; only basic node and peer context was collected."
+    }
+  ]
+}
