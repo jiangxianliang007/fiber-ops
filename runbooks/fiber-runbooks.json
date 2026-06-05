@@ -2,7 +2,9 @@
   "version": 1,
   "metadata": {
     "project": "fiber-ops",
-    "description": "Minimal Fiber alert runbook configuration for n8n/AI diagnostics"
+    "description": "Fiber alert runbook configuration for n8n/AI diagnostics. Error types are derived from crates/fiber-lib/src/errors.rs::Error and crates/fiber-lib/src/fiber/channel.rs::ProcessingChannelError in nervosnetwork/fiber.",
+    "source_repo": "nervosnetwork/fiber",
+    "source_ref": "develop"
   },
   "ids_schema": {
     "channel_id": "Fiber channel id (Hash256)",
@@ -41,6 +43,26 @@
         {
           "payment_hash": "{{ ids.payment_hash }}"
         }
+      ]
+    },
+    "get_invoice_by_hash": {
+      "method": "get_invoice",
+      "params": [
+        {
+          "payment_hash": "{{ ids.payment_hash }}"
+        }
+      ]
+    },
+    "graph_nodes": {
+      "method": "graph_nodes",
+      "params": [
+        {}
+      ]
+    },
+    "graph_channels": {
+      "method": "graph_channels",
+      "params": [
+        {}
       ]
     }
   },
@@ -97,6 +119,408 @@
       "report_title": "Payment-related error",
       "summary": "A payment-related error occurred and the payment context should be inspected when a payment hash is available.",
       "fallback_summary": "Insufficient context for live checks; payment status unavailable or payment hash missing."
+    },
+    {
+      "error_type": "PeerNotFound",
+      "category": "peer-connectivity",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Peer not found",
+      "summary": "Operation targeted a peer that is not currently known by the local node (Error::PeerNotFound).",
+      "fallback_summary": "Insufficient context; peer may have disconnected, never connected, or its address book entry was removed."
+    },
+    {
+      "error_type": "InvalidPeerMessage",
+      "category": "peer-protocol",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Invalid peer message",
+      "summary": "A remote peer sent a malformed or unexpected Fiber protocol message (Error::InvalidPeerMessage).",
+      "fallback_summary": "Insufficient context; check whether the peer is on a compatible protocol version or is misbehaving."
+    },
+    {
+      "error_type": "InvalidOnionPacket",
+      "category": "onion-packet",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Invalid onion packet",
+      "summary": "An onion packet failed structural deserialization on this hop (Error::InvalidOnionPacket).",
+      "fallback_summary": "Insufficient context; the upstream sender may have built an invalid packet or be using an incompatible payload format."
+    },
+    {
+      "error_type": "PeelingOnionPacketError",
+      "category": "onion-packet",
+      "severity": "critical",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "Failed to peel onion packet",
+      "summary": "Peeling the payment onion packet failed (ProcessingChannelError::PeelingOnionPacketError). The upstream node likely used the wrong shared secret/key or the onion was corrupted in flight.",
+      "fallback_summary": "Insufficient context; investigate the immediate upstream peer for protocol/version mismatch or potential malicious behavior."
+    },
+    {
+      "error_type": "InvalidState",
+      "category": "channel-state",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Invalid channel state for requested operation",
+      "summary": "A channel command or peer message was processed in a state that does not allow it (ProcessingChannelError::InvalidState).",
+      "fallback_summary": "Insufficient context; the channel may be shutting down, awaiting reestablish, or in an unexpected sub-state."
+    },
+    {
+      "error_type": "RepeatedProcessing",
+      "category": "idempotency",
+      "severity": "info",
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Duplicate channel message",
+      "summary": "A peer message was received twice and rejected by the idempotency guard (ProcessingChannelError::RepeatedProcessing). Usually benign during reestablish/replay.",
+      "fallback_summary": "Insufficient context; if this repeats frequently the peer may be retrying or out of sync."
+    },
+    {
+      "error_type": "WaitingTlcAck",
+      "category": "tlc-flow-control",
+      "severity": "info",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "TLC command blocked waiting for previous ACK",
+      "summary": "A new TLC operation was deferred because the previous commitment is still awaiting RevokeAndAck (ProcessingChannelError::WaitingTlcAck). Normally transient and auto-retried.",
+      "fallback_summary": "Insufficient context; persistent occurrences suggest a slow or unresponsive peer."
+    },
+    {
+      "error_type": "TlcNumberExceedLimit",
+      "category": "liquidity",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "In-flight TLC count exceeded",
+      "summary": "Adding a TLC would exceed max_tlc_number_in_flight on the channel (ProcessingChannelError::TlcNumberExceedLimit).",
+      "fallback_summary": "Insufficient context; downstream peer may be slow to settle TLCs, or the limit is set too low."
+    },
+    {
+      "error_type": "TlcValueInflightExceedLimit",
+      "category": "liquidity",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "In-flight TLC value exceeded",
+      "summary": "Adding a TLC would exceed max_tlc_value_in_flight on the channel (ProcessingChannelError::TlcValueInflightExceedLimit).",
+      "fallback_summary": "Insufficient context; in-flight value limit too low for the workload, or stuck TLCs are not settling."
+    },
+    {
+      "error_type": "TlcAmountIsTooLow",
+      "category": "tlc-validation",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "TLC amount below minimum",
+      "summary": "TLC amount is below this channel's tlc_minimum_value (ProcessingChannelError::TlcAmountIsTooLow).",
+      "fallback_summary": "Insufficient context; sender used a too-small amount for the target channel's policy."
+    },
+    {
+      "error_type": "TlcExpirySoon",
+      "category": "tlc-expiry",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "TLC expiry too soon",
+      "summary": "TLC expiry is below the minimum required delta from current time (ProcessingChannelError::TlcExpirySoon).",
+      "fallback_summary": "Insufficient context; sender or upstream forwarder chose an expiry too close to now."
+    },
+    {
+      "error_type": "TlcExpiryTooFar",
+      "category": "tlc-expiry",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "TLC expiry too far in the future",
+      "summary": "TLC expiry exceeds MAX_PAYMENT_TLC_EXPIRY_LIMIT (ProcessingChannelError::TlcExpiryTooFar).",
+      "fallback_summary": "Insufficient context; sender used an unreasonable expiry value."
+    },
+    {
+      "error_type": "IncorrectTlcExpiry",
+      "category": "tlc-forwarding",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "Incorrect TLC expiry on forwarding",
+      "summary": "Forwarded TLC expiry does not satisfy this hop's required cltv_expiry_delta (ProcessingChannelError::IncorrectTlcExpiry).",
+      "fallback_summary": "Insufficient context; the upstream node may be using stale channel policy."
+    },
+    {
+      "error_type": "IncorrectTlcDirection",
+      "category": "one-way-channel",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "TLC sent in disallowed direction",
+      "summary": "Attempt to send or forward a TLC against the allowed direction of a one-way channel (ProcessingChannelError::IncorrectTlcDirection).",
+      "fallback_summary": "Insufficient context; check the one-way flag and which side is the acceptor."
+    },
+    {
+      "error_type": "TlcForwardFeeIsTooLow",
+      "category": "fee",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels",
+        "graph_channels"
+      ],
+      "report_title": "TLC forward fee too low",
+      "summary": "Upstream did not include enough fee for this hop based on local tlc_fee_proportional_millionths (ProcessingChannelError::TlcForwardFeeIsTooLow).",
+      "fallback_summary": "Insufficient context; upstream is using an outdated channel_update or fee policy diverged."
+    },
+    {
+      "error_type": "TlcForwardingError",
+      "category": "payment-forwarding",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Downstream TLC forwarding failed",
+      "summary": "Forwarding a TLC to the next hop failed and was reported back as a TlcErr (ProcessingChannelError::TlcForwardingError).",
+      "fallback_summary": "Insufficient context; failure is downstream and may require inspecting the next hop's channel/peer."
+    },
+    {
+      "error_type": "FinalIncorrectPreimage",
+      "category": "payment-final-hop",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "get_payment_by_hash",
+        "get_invoice_by_hash"
+      ],
+      "report_title": "Final hop preimage mismatch",
+      "summary": "On the final hop, the preimage carried in the onion does not hash to the payment_hash (ProcessingChannelError::FinalIncorrectPreimage).",
+      "fallback_summary": "Insufficient context; sender constructed the payment with an incorrect preimage or hash_algorithm."
+    },
+    {
+      "error_type": "FinalIncorrectPaymentHash",
+      "category": "payment-final-hop",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "get_payment_by_hash",
+        "get_invoice_by_hash"
+      ],
+      "report_title": "Final hop payment_hash mismatch",
+      "summary": "Final hop received a payment_hash that does not match a known invoice/preimage or has wrong hash_algorithm (ProcessingChannelError::FinalIncorrectPaymentHash).",
+      "fallback_summary": "Insufficient context; the invoice may have been removed or the sender used the wrong hash."
+    },
+    {
+      "error_type": "FinalIncorrectHTLCAmount",
+      "category": "payment-final-hop",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "get_payment_by_hash",
+        "get_invoice_by_hash"
+      ],
+      "report_title": "Final hop HTLC amount mismatch",
+      "summary": "Final hop amount does not equal the forward amount declared in the onion, or does not fulfill the invoice (ProcessingChannelError::FinalIncorrectHTLCAmount).",
+      "fallback_summary": "Insufficient context; sender or an intermediate forwarder tampered with the amount."
+    },
+    {
+      "error_type": "FinalIncorrectMPPInfo",
+      "category": "payment-mpp",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "get_payment_by_hash",
+        "get_invoice_by_hash"
+      ],
+      "report_title": "Invalid MPP payment info on final hop",
+      "summary": "MPP payment data on the final hop is missing or does not match the invoice (ProcessingChannelError::FinalIncorrectMPPInfo). Includes payment_secret, total_amount, or missing payment data when invoice requires MPP.",
+      "fallback_summary": "Insufficient context; check whether sender enabled MPP and used the invoice's payment_secret."
+    },
+    {
+      "error_type": "FinalInvoiceInvalid",
+      "category": "invoice-state",
+      "severity": "warning",
+      "queries": [
+        "get_invoice_by_hash",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Invoice in invalid state at final hop",
+      "summary": "The local invoice is not in Open state (Expired / Cancelled / Paid) when a final-hop TLC arrived (ProcessingChannelError::FinalInvoiceInvalid).",
+      "fallback_summary": "Insufficient context; verify invoice status via get_invoice; may indicate a late retry or duplicate payment."
+    },
+    {
+      "error_type": "CapacityError",
+      "category": "ckb-capacity",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "CKB capacity arithmetic error",
+      "summary": "A CKB cell capacity calculation failed for commitment, shutdown, or funding outputs (ProcessingChannelError::CapacityError).",
+      "fallback_summary": "Insufficient context; check fee rates, reserved CKB amounts, and shutdown script size."
+    },
+    {
+      "error_type": "Musig2Error",
+      "category": "signature",
+      "severity": "critical",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "Musig2 signing/verification error",
+      "summary": "A Musig2 round failed (ProcessingChannelError::Musig2RoundFinalizeError / Musig2VerifyError / Musig2SigningError). Bad partial signatures or wrong nonces from the peer can trigger this.",
+      "fallback_summary": "Insufficient context; persistent failures indicate a peer-side bug or potential attack - investigate the channel and peer urgently."
+    },
+    {
+      "error_type": "FundingError",
+      "category": "funding-tx",
+      "severity": "critical",
+      "queries": [
+        "node_info",
+        "list_channels"
+      ],
+      "report_title": "Funding transaction error",
+      "summary": "Funding transaction construction, verification, or submission failed (Error::FundingError).",
+      "fallback_summary": "Insufficient context; check CKB node connectivity and that the funding inputs/outputs are valid."
+    },
+    {
+      "error_type": "CkbRpcError",
+      "category": "ckb-connectivity",
+      "severity": "critical",
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "CKB RPC error",
+      "summary": "An RPC call to the local CKB node failed (Error::CkbRpcError).",
+      "fallback_summary": "Insufficient context; check that the CKB node is running, reachable, and synced."
+    },
+    {
+      "error_type": "DBInternalError",
+      "category": "storage",
+      "severity": "critical",
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "Database internal error",
+      "summary": "The Fiber node's local store returned an internal error (Error::DBInternalError).",
+      "fallback_summary": "Insufficient context; check disk space, file permissions, and whether the store was opened correctly."
+    },
+    {
+      "error_type": "InternalError",
+      "category": "internal",
+      "severity": "critical",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Internal channel error",
+      "summary": "An internal invariant was violated while processing a channel operation (ProcessingChannelError::InternalError / Error::InternalError).",
+      "fallback_summary": "Insufficient context; this is typically a bug - capture full logs and channel_id and report upstream."
+    },
+    {
+      "error_type": "InvalidChainHash",
+      "category": "network-config",
+      "severity": "critical",
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "Invalid chain hash",
+      "summary": "Received a message with a chain_hash that does not match the local network (Error::InvalidChainHash).",
+      "fallback_summary": "Insufficient context; the peer is on a different network (mainnet vs testnet vs dev). Confirm chain_hash from node_info."
+    },
+    {
+      "error_type": "NetworkGraphError",
+      "category": "pathfinding",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "graph_nodes",
+        "graph_channels"
+      ],
+      "report_title": "Network graph / pathfinding error",
+      "summary": "Path finding failed against the local network graph (Error::NetworkGraphError, wraps PathFindError).",
+      "fallback_summary": "Insufficient context; graph may be stale, target unreachable, or fee/expiry constraints unsatisfiable."
+    },
+    {
+      "error_type": "BuildPaymentRouteError",
+      "category": "pathfinding",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_channels",
+        "graph_channels"
+      ],
+      "report_title": "Failed to build payment route",
+      "summary": "Building a payment route for send_payment or build_router failed (Error::BuildPaymentRouteError).",
+      "fallback_summary": "Insufficient context; verify target node is in graph, sufficient liquidity exists, and hop_hints (if any) are valid."
+    },
+    {
+      "error_type": "SendPaymentError",
+      "category": "payment-send",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Send payment failed",
+      "summary": "Sending a payment failed at the orchestration layer (Error::SendPaymentError).",
+      "fallback_summary": "Insufficient context; check payment session via get_payment; common causes are no route, dry_run violations, or invoice issues."
+    },
+    {
+      "error_type": "FirstHopError",
+      "category": "payment-first-hop",
+      "severity": "warning",
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Payment first-hop error",
+      "summary": "First-hop dispatch of a payment attempt failed (Error::FirstHopError). The boolean retry flag indicates whether MPP/retry may help.",
+      "fallback_summary": "Insufficient context; usually caused by local outbound liquidity, peer offline, or channel not in ChannelReady."
     },
     {
       "error_type": "Unknown",
