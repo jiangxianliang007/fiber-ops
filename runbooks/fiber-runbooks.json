@@ -1,10 +1,31 @@
 {
-  "version": 1,
+  "version": 2,
   "metadata": {
     "project": "fiber-ops",
-    "description": "Fiber alert runbook configuration for n8n/AI diagnostics. Error types are derived from crates/fiber-lib/src/errors.rs::Error and crates/fiber-lib/src/fiber/channel.rs::ProcessingChannelError in nervosnetwork/fiber.",
+    "description": "Fiber alert runbook configuration for n8n/AI diagnostics. Error types are derived from crates/fiber-lib/src/errors.rs::Error and crates/fiber-lib/src/fiber/channel.rs::ProcessingChannelError.",
     "source_repo": "nervosnetwork/fiber",
-    "source_ref": "develop"
+    "source_ref": "develop",
+    "matching_guide": {
+      "log_format": "Fiber logs errors with the Display format (`{}`), not the Debug format (`{:?}`). The text comes from each error variant's thiserror `#[error(\"...\")]` template. Variant names like `RemoveSettledTlcFailed` or `ChannelNotFound` do NOT appear literally in most logs; only the rendered message does.",
+      "patterns": "Each runbook's `match.patterns` is a list of case-insensitive ECMAScript regular expressions that should match against the raw log line.",
+      "priority": "Higher `match.priority` wins. Recommended primary/secondary scheme: 1) collect ALL runbooks whose any pattern matches the log line; 2) sort by priority desc; 3) use the top as primary `error_type` and drive the `queries` list; 4) keep the rest as `secondary_error_types` for AI attribution. Use `Unknown` (priority 0) as a fallback only when nothing else matches.",
+      "priority_buckets": {
+        "90": "Operation-context wrappers from `error!()` calls in network.rs (most specific, describes the failing operation).",
+        "60": "Specific, unambiguous inner Error/ProcessingChannelError Display strings.",
+        "50": "Standard inner Error/ProcessingChannelError Display strings.",
+        "30": "Wrapper / catch-all error categories that often contain other inner errors.",
+        "0": "Unknown fallback."
+      },
+      "example": {
+        "log": "ERROR fnn::fiber::network: Failed to remove settled tlc 0 for channel Hash256(0x015b...): Channel not found error: Hash256(0x015b...)",
+        "matches": [
+          {"error_type": "RemoveSettledTlcFailed", "priority": 90},
+          {"error_type": "ChannelNotFound", "priority": 50}
+        ],
+        "primary": "RemoveSettledTlcFailed",
+        "secondary_error_types": ["ChannelNotFound"]
+      }
+    }
   },
   "ids_schema": {
     "channel_id": "Fiber channel id (Hash256)",
@@ -71,45 +92,75 @@
       "error_type": "ChannelNotFound",
       "category": "channel-state",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Channel not found error:\\s*Hash256\\("
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
         "list_channels_include_closed"
       ],
       "report_title": "Channel not found",
-      "summary": "A channel-related operation referenced a channel actor/state that could not be found.",
+      "summary": "A channel-related operation referenced a channel actor/state that could not be found (Error::ChannelNotFound).",
       "fallback_summary": "Insufficient context for live checks; likely closed, peer disconnected, or internal channel-state inconsistency."
     },
     {
       "error_type": "TlcAmountExceedLimit",
       "category": "liquidity",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TLC amount .*exceed.*(?:max|limit|liquidity)",
+          "TlcAmountExceedLimit",
+          "amount exceeds .*max_tlc_value"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
         "list_channels"
       ],
       "report_title": "TLC amount exceeds channel limit",
-      "summary": "The requested TLC amount exceeds the channel's currently sendable outbound liquidity.",
+      "summary": "The requested TLC amount exceeds the channel's currently sendable outbound liquidity (ProcessingChannelError::TlcAmountExceedLimit).",
       "fallback_summary": "Insufficient context for live checks; likely outbound liquidity exhaustion based on error type alone."
     },
     {
       "error_type": "RemoveSettledTlcFailed",
       "category": "tlc-cleanup",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to remove settled tlc \\d+ for channel Hash256\\(",
+          "Failed to remove settled tlc"
+        ],
+        "priority": 90
+      },
       "queries": [
         "node_info",
         "list_peers",
         "list_channels_include_closed"
       ],
       "report_title": "Failed to remove settled TLC",
-      "summary": "A settled TLC cleanup operation failed and may indicate peer unavailability or channel-state inconsistency.",
+      "summary": "A settled TLC cleanup operation failed in NetworkActorCommand::CheckChannels and may indicate peer unavailability or channel-state inconsistency. Source: crates/fiber-lib/src/fiber/network.rs error!(\"Failed to remove settled tlc {:?} for channel {:?}: {}\").",
       "fallback_summary": "Insufficient context for live checks; likely a stuck TLC cleanup or peer disconnected case."
     },
     {
       "error_type": "PaymentRelated",
       "category": "payment",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to start payment actor",
+          "Failed to build payment from command",
+          "Payment session already exists",
+          "Payment actor stopped"
+        ],
+        "priority": 30
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -124,6 +175,12 @@
       "error_type": "PeerNotFound",
       "category": "peer-connectivity",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Peer not found error:\\s*(?:Pubkey\\(|0x)"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers"
@@ -133,9 +190,51 @@
       "fallback_summary": "Insufficient context; peer may have disconnected, never connected, or its address book entry was removed."
     },
     {
+      "error_type": "NoMatchingAddress",
+      "category": "peer-connectivity",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "No matching address for peer .* with transport type"
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "No matching peer address for requested transport",
+      "summary": "Peer is known but has no address of the requested transport type (Error::NoMatchingAddress, e.g. asked for Tcp but only Ws available).",
+      "fallback_summary": "Insufficient context; check the peer's announced addresses and the addr_type parameter used in connect_peer."
+    },
+    {
+      "error_type": "NoSupportedAddress",
+      "category": "peer-connectivity",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "No supported address for peer .* on this target"
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "No supported peer address on this target",
+      "summary": "Peer is known but has no address whose transport is supported by this build (Error::NoSupportedAddress, wasm vs native).",
+      "fallback_summary": "Insufficient context; verify the build target and peer-announced addresses."
+    },
+    {
       "error_type": "InvalidPeerMessage",
       "category": "peer-protocol",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Invalid peer message:"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers"
@@ -148,6 +247,12 @@
       "error_type": "InvalidOnionPacket",
       "category": "onion-packet",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Onion packet error:"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers"
@@ -160,19 +265,34 @@
       "error_type": "PeelingOnionPacketError",
       "category": "onion-packet",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "PeelingOnionPacketError",
+          "(?:Failed|failed) to peel onion",
+          "peel(?:ing)? .*onion packet"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info",
         "list_peers",
         "list_channels"
       ],
       "report_title": "Failed to peel onion packet",
-      "summary": "Peeling the payment onion packet failed (ProcessingChannelError::PeelingOnionPacketError). The upstream node likely used the wrong shared secret/key or the onion was corrupted in flight.",
+      "summary": "Peeling the payment onion packet failed (ProcessingChannelError::PeelingOnionPacketError). The upstream node likely used the wrong shared secret/key or the onion was corrupted in transit.",
       "fallback_summary": "Insufficient context; investigate the immediate upstream peer for protocol/version mismatch or potential malicious behavior."
     },
     {
       "error_type": "InvalidState",
       "category": "channel-state",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Invalid (?:channel )?state[:\\s]",
+          "InvalidState\\("
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -186,6 +306,14 @@
       "error_type": "RepeatedProcessing",
       "category": "idempotency",
       "severity": "info",
+      "match": {
+        "patterns": [
+          "RepeatedProcessing",
+          "already (?:awaiting|processed|exists)",
+          "is already awaiting to be accepted"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers"
@@ -198,6 +326,14 @@
       "error_type": "WaitingTlcAck",
       "category": "tlc-flow-control",
       "severity": "info",
+      "match": {
+        "patterns": [
+          "WaitingTlcAck",
+          "waiting (?:for )?(?:tlc )?ack",
+          "waiting for (?:revoke|RevokeAndAck)"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -211,6 +347,14 @@
       "error_type": "TlcNumberExceedLimit",
       "category": "liquidity",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcNumberExceedLimit",
+          "exceeds? max_tlc_number_in_flight",
+          "TLC (?:number|count) exceed"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -224,6 +368,14 @@
       "error_type": "TlcValueInflightExceedLimit",
       "category": "liquidity",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcValueInflightExceedLimit",
+          "exceeds? max_tlc_value_in_flight",
+          "in-?flight value exceed"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -237,6 +389,14 @@
       "error_type": "TlcAmountIsTooLow",
       "category": "tlc-validation",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcAmountIsTooLow",
+          "TLC amount .*(?:too low|below)",
+          "below .*tlc_minimum_value"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels"
@@ -249,6 +409,14 @@
       "error_type": "TlcExpirySoon",
       "category": "tlc-expiry",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcExpirySoon",
+          "expiry (?:is )?too soon",
+          "ExpiryTooSoon"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels"
@@ -261,6 +429,14 @@
       "error_type": "TlcExpiryTooFar",
       "category": "tlc-expiry",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcExpiryTooFar",
+          "expiry (?:is )?too far",
+          "ExpiryTooFar"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels"
@@ -273,6 +449,14 @@
       "error_type": "IncorrectTlcExpiry",
       "category": "tlc-forwarding",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "IncorrectTlcExpiry",
+          "incorrect .*expiry",
+          "cltv_expiry_delta"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -286,6 +470,14 @@
       "error_type": "IncorrectTlcDirection",
       "category": "one-way-channel",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "IncorrectTlcDirection",
+          "(?:tlc|TLC) .*direction",
+          "one[- ]way channel"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels"
@@ -298,6 +490,14 @@
       "error_type": "TlcForwardFeeIsTooLow",
       "category": "fee",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcForwardFeeIsTooLow",
+          "forward(?:ing)? fee .*(?:too low|insufficient)",
+          "FeeInsufficient"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels",
@@ -311,6 +511,14 @@
       "error_type": "TlcForwardingError",
       "category": "payment-forwarding",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "TlcForwardingError",
+          "Failed to send onion packet to channel",
+          "forward(?:ing)? tlc failed"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -325,6 +533,14 @@
       "error_type": "FinalIncorrectPreimage",
       "category": "payment-final-hop",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "FinalIncorrectPreimage",
+          "incorrect preimage",
+          "preimage (?:mismatch|does not (?:match|hash))"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "get_payment_by_hash",
@@ -338,6 +554,15 @@
       "error_type": "FinalIncorrectPaymentHash",
       "category": "payment-final-hop",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "FinalIncorrectPaymentHash",
+          "incorrect payment[_ ]?hash",
+          "payment[_ ]?hash mismatch",
+          "IncorrectOrUnknownPaymentDetails"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "get_payment_by_hash",
@@ -351,6 +576,15 @@
       "error_type": "FinalIncorrectHTLCAmount",
       "category": "payment-final-hop",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "FinalIncorrectHTLCAmount",
+          "FinalIncorrectTlcAmount",
+          "incorrect (?:htlc|tlc) amount",
+          "amount mismatch"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "get_payment_by_hash",
@@ -364,19 +598,39 @@
       "error_type": "FinalIncorrectMPPInfo",
       "category": "payment-mpp",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "FinalIncorrectMPPInfo",
+          "mpp (?:payment )?(?:secret|info)",
+          "payment_secret",
+          "Node does not support MPP"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "get_payment_by_hash",
         "get_invoice_by_hash"
       ],
       "report_title": "Invalid MPP payment info on final hop",
-      "summary": "MPP payment data on the final hop is missing or does not match the invoice (ProcessingChannelError::FinalIncorrectMPPInfo). Includes payment_secret, total_amount, or missing payment data when invoice requires MPP.",
+      "summary": "MPP payment data on the final hop is missing or does not match the invoice (ProcessingChannelError::FinalIncorrectMPPInfo). Covers missing/wrong payment_secret, wrong total_amount, etc.",
       "fallback_summary": "Insufficient context; check whether sender enabled MPP and used the invoice's payment_secret."
     },
     {
       "error_type": "FinalInvoiceInvalid",
       "category": "invoice-state",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "FinalInvoiceInvalid",
+          "invoice (?:is )?(?:expired|cancelled|paid)",
+          "InvoiceExpired",
+          "InvoiceCancelled",
+          "invoice not found",
+          "invoice already exists"
+        ],
+        "priority": 50
+      },
       "queries": [
         "get_invoice_by_hash",
         "get_payment_by_hash"
@@ -389,6 +643,13 @@
       "error_type": "CapacityError",
       "category": "ckb-capacity",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "CapacityError",
+          "capacity (?:overflow|underflow|error|too small)"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels"
@@ -401,6 +662,15 @@
       "error_type": "Musig2Error",
       "category": "signature",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Musig2RoundFinalizeError",
+          "Musig2VerifyError",
+          "Musig2SigningError",
+          "musig2"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -414,18 +684,35 @@
       "error_type": "FundingError",
       "category": "funding-tx",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Funding error:",
+          "Funding transaction failed:",
+          "failed to send funding tx",
+          "Failed to build unsigned funding tx",
+          "Failed to fund channel"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info",
         "list_channels"
       ],
       "report_title": "Funding transaction error",
-      "summary": "Funding transaction construction, verification, or submission failed (Error::FundingError).",
+      "summary": "Funding transaction construction, verification, signing, or submission failed (Error::FundingError).",
       "fallback_summary": "Insufficient context; check CKB node connectivity and that the funding inputs/outputs are valid."
     },
     {
       "error_type": "CkbRpcError",
       "category": "ckb-connectivity",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Ckb Rpc error:",
+          "Failed to call CKB RPC:"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info"
       ],
@@ -437,6 +724,13 @@
       "error_type": "DBInternalError",
       "category": "storage",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Database error:",
+          "DBInternalError"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info"
       ],
@@ -448,6 +742,13 @@
       "error_type": "InternalError",
       "category": "internal",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Internal error:",
+          "InternalError\\("
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -461,6 +762,13 @@
       "error_type": "InvalidChainHash",
       "category": "network-config",
       "severity": "critical",
+      "match": {
+        "patterns": [
+          "Invalid chain hash:",
+          "chain hash mismatch with peer"
+        ],
+        "priority": 60
+      },
       "queries": [
         "node_info"
       ],
@@ -472,6 +780,13 @@
       "error_type": "NetworkGraphError",
       "category": "pathfinding",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Network Graph error:",
+          "PathFindError"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "graph_nodes",
@@ -485,6 +800,13 @@
       "error_type": "BuildPaymentRouteError",
       "category": "pathfinding",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Build payment route error:",
+          "Failed to build payment router"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_channels",
@@ -498,6 +820,12 @@
       "error_type": "SendPaymentError",
       "category": "payment-send",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Send payment error:"
+        ],
+        "priority": 30
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -505,13 +833,19 @@
         "get_payment_by_hash"
       ],
       "report_title": "Send payment failed",
-      "summary": "Sending a payment failed at the orchestration layer (Error::SendPaymentError).",
+      "summary": "Sending a payment failed at the orchestration layer (Error::SendPaymentError). This is often a wrapper around a more specific inner error.",
       "fallback_summary": "Insufficient context; check payment session via get_payment; common causes are no route, dry_run violations, or invoice issues."
     },
     {
       "error_type": "FirstHopError",
       "category": "payment-first-hop",
       "severity": "warning",
+      "match": {
+        "patterns": [
+          "Send payment first hop error:"
+        ],
+        "priority": 50
+      },
       "queries": [
         "node_info",
         "list_peers",
@@ -523,9 +857,116 @@
       "fallback_summary": "Insufficient context; usually caused by local outbound liquidity, peer offline, or channel not in ChannelReady."
     },
     {
+      "error_type": "CkbInvoiceError",
+      "category": "invoice-state",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Invoice error:",
+          "InvoiceAlreadyExists",
+          "InvoiceNotFound",
+          "HashMismatch",
+          "InvoiceStillOpen",
+          "InvoiceAlreadyCancelled",
+          "InvoiceAlreadyPaid",
+          "InvoiceAlreadyExpired"
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info",
+        "get_invoice_by_hash",
+        "get_payment_by_hash"
+      ],
+      "report_title": "CKB invoice error",
+      "summary": "An invoice operation failed (Error::CkbInvoiceError / SettleInvoiceError). Covers create/get/cancel/settle paths.",
+      "fallback_summary": "Insufficient context; verify the invoice's existence and current status via get_invoice."
+    },
+    {
+      "error_type": "InvalidParameter",
+      "category": "user-input",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "InvalidParameter:",
+          "Invalid UDT type script",
+          "TLC expiry delta is too small",
+          "Peer .* is not connected"
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "Invalid RPC parameter",
+      "summary": "An RPC caller provided an invalid parameter that failed validation (Error::InvalidParameter or ProcessingChannelError::InvalidParameter).",
+      "fallback_summary": "Insufficient context; verify the inputs to the RPC method that triggered the error."
+    },
+    {
+      "error_type": "FailedToProcessChannel",
+      "category": "channel-state",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to processing channel:"
+        ],
+        "priority": 40
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Channel processing wrapper error",
+      "summary": "Error::ChannelError wrapper around a ProcessingChannelError. The inner error (after the colon) is the actionable cause - any more specific matched runbook should win on priority.",
+      "fallback_summary": "Insufficient context; inspect the inner ProcessingChannelError variant for the real cause."
+    },
+    {
+      "error_type": "TentacleSendError",
+      "category": "transport",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to send tentacle message:",
+          "TentacleSend"
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Tentacle transport send failed",
+      "summary": "Failed to send a message on the tentacle p2p transport (Error::TentacleSend). Typically indicates session was closed or congested.",
+      "fallback_summary": "Insufficient context; check peer connectivity and whether the session is still alive."
+    },
+    {
+      "error_type": "ActorMessagingError",
+      "category": "internal",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to send (?:channel|network) actor message:",
+          "Failed to in-flight tx actor message:",
+          "Failed to spawn actor:"
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "Actor messaging / spawn error",
+      "summary": "Sending a message to an internal ractor actor failed, or spawning one failed (Error::ChannelMessagingErr / NetworkMessagingErr / InFlightCkbTxActorMessagingErr / SpawnErr). The target actor may have stopped.",
+      "fallback_summary": "Insufficient context; this often indicates a transient race during shutdown or reestablish."
+    },
+    {
       "error_type": "Unknown",
       "category": "unknown",
       "severity": "warning",
+      "match": {
+        "patterns": [],
+        "priority": 0
+      },
       "queries": [
         "node_info",
         "list_peers"
