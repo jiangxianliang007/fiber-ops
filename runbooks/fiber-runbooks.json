@@ -8,7 +8,9 @@
     "matching_guide": {
       "log_format": "Fiber logs errors with the Display format (`{}`), not the Debug format (`{:?}`). The text comes from each error variant's thiserror `#[error(\"...\")]` template. Variant names like `RemoveSettledTlcFailed` or `ChannelNotFound` do NOT appear literally in most logs; only the rendered message does.",
       "patterns": "Each runbook's `match.patterns` is a list of case-insensitive ECMAScript regular expressions that should match against the raw log line.",
-      "priority": "Higher `match.priority` wins. Recommended primary/secondary scheme: 1) collect ALL runbooks whose any pattern matches the log line; 2) sort by priority desc; 3) use the top as primary `error_type` and drive the `queries` list; 4) keep the rest as `secondary_error_types` for AI attribution. Use `Unknown` (priority 0) as a fallback only when nothing else matches.",
+      "priority": "Higher `match.priority` wins. Recommended scheme: 1) collect ALL runbooks whose any pattern matches the log line; 2) sort by priority desc, then by original `runbooks` array order asc for deterministic ties; 3) use the top match as primary `error_type`; 4) keep the rest as `secondary_error_types`; 5) use `Unknown` (priority 0) only when nothing else matches.",
+      "query_selection": "Default to the primary runbook's `queries`. In extended-diagnosis mode, secondary runbooks' `queries` may be unioned with de-duplication.",
+      "multi_match_note": "Multi-match is expected, not an error, when a Fiber log contains both an outer operation-context wrapper and an inner error string.",
       "priority_buckets": {
         "90": "Operation-context wrappers from `error!()` calls in network.rs (most specific, describes the failing operation).",
         "60": "Specific, unambiguous inner Error/ProcessingChannelError Display strings.",
