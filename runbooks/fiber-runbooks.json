@@ -267,6 +267,29 @@
       "fallback_summary": "Insufficient context; check whether the peer is on a compatible protocol version or is misbehaving."
     },
     {
+      "error_type": "GossipProcessingError",
+      "category": "gossip",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to send gossip message to peer ",
+          "Failed to check chain hash:",
+          "The message timestamp is too far in the future:",
+          "Failed to process the message:",
+          "A newer message is already saved:",
+          "Malicious gossip peer found "
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info",
+        "list_peers"
+      ],
+      "report_title": "Gossip message processing error",
+      "summary": "A gossip-protocol operation failed: either sending/receiving a gossip message to/from a peer, validating a message timestamp, or rejecting a malicious peer (GossipMessageProcessingError / GossipActor logs in crates/fiber-lib/src/fiber/gossip.rs).",
+      "fallback_summary": "Insufficient context; check peer connectivity, local clock skew, and whether the peer was banned for protocol violations."
+    },
+    {
       "error_type": "InvalidOnionPacket",
       "category": "onion-packet",
       "severity": "warning",
@@ -324,6 +347,26 @@
       "report_title": "Invalid channel state for requested operation",
       "summary": "A channel command or peer message was processed in a state that does not allow it (ProcessingChannelError::InvalidState).",
       "fallback_summary": "Insufficient context; the channel may be shutting down, awaiting reestablish, or in an unexpected sub-state."
+    },
+    {
+      "error_type": "ToBeAcceptedChannelsExceedLimit",
+      "category": "channel-acceptance",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "ToBeAcceptedChannelsExceedLimit",
+          "(?:Global|Peer) pending channel count exceeds the limit"
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "Pending channel count limit exceeded",
+      "summary": "A new channel could not be opened/accepted because the global or per-peer pending channel count would exceed the configured limit (ProcessingChannelError::ToBeAcceptedChannelsExceedLimit, raised in NetworkActorState::check_pending_channel_limit).",
+      "fallback_summary": "Insufficient context; some pending channels never reached ChannelReady. Inspect to_be_accepted_channels and pending_channels_number_limit configuration."
     },
     {
       "error_type": "RepeatedProcessing",
@@ -553,6 +596,30 @@
       "fallback_summary": "Insufficient context; failure is downstream and may require inspecting the next hop's channel/peer."
     },
     {
+      "error_type": "TrampolineForwardingFailed",
+      "category": "payment-trampoline",
+      "severity": "critical",
+      "match": {
+        "patterns": [
+          "Payment success but no preimage found for ",
+          "Can't fail upstream trampoline TLC without shared secret:",
+          "Trampoline payment stopped with unknown state for ",
+          "Failed to send fulfillment to upstream channel:",
+          "Failed to send failure to upstream channel:"
+        ],
+        "priority": 70
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Trampoline payment forwarding failed",
+      "summary": "A trampoline-forwarded payment finished but the upstream TLC could not be cleanly resolved (Source: fiber-lib/src/fiber/network.rs on_payment_actor_stopped). Possible causes: outgoing payment succeeded but the preimage was lost, the previous-hop shared_secret is missing so an upstream failure can't be wrapped, or the payment ended in an unexpected status. The upstream TLC may be left hanging until timeout.",
+      "fallback_summary": "Insufficient context; investigate the payment session, the upstream channel for stuck TLCs, and whether the node restarted mid-forward."
+    },
+    {
       "error_type": "FinalIncorrectPreimage",
       "category": "payment-final-hop",
       "severity": "warning",
@@ -730,6 +797,30 @@
       "fallback_summary": "Insufficient context; check CKB node connectivity, that the funding inputs/outputs are valid, and (for RBF rejections) that the configured fee rate is high enough to replace the existing tx in the mempool."
     },
     {
+      "error_type": "FundingErrorPeerOrCapacity",
+      "category": "funding-tx",
+      "severity": "critical",
+      "match": {
+        "patterns": [
+          "Peer sent us an invalid funding tx",
+          "Funding tx rejected: peer-added complexity exceeds allowed limit",
+          "Funding tx rejected: peer-added input #\\d+ has the local funding source lock args",
+          "Insufficient cells available for funding:",
+          "Funding tx is absent",
+          "Dead cell found in the tx"
+        ],
+        "priority": 70
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels"
+      ],
+      "report_title": "Funding tx rejected (peer-supplied or capacity)",
+      "summary": "A funding transaction was rejected for a specific, actionable reason (FundingError variants in crates/fiber-lib/src/ckb/error.rs): either the peer-supplied portion of the funding tx is invalid / too complex / reuses our funding lock, or the local node does not have enough live cells to cover the funding amount + reserved CKB.",
+      "fallback_summary": "Insufficient context; check the peer's behavior for the peer-supplied variants, or check the local wallet's available cells for the capacity-related variants."
+    },
+    {
       "error_type": "ClosingTxConfirmFailed",
       "category": "closing-tx",
       "severity": "critical",
@@ -821,6 +912,25 @@
       "report_title": "Invalid chain hash",
       "summary": "Received a message with a chain_hash that does not match the local network (Error::InvalidChainHash).",
       "fallback_summary": "Insufficient context; the peer is on a different network (mainnet vs testnet vs dev). Confirm chain_hash from node_info."
+    },
+    {
+      "error_type": "DeferredChannelAnnouncementVerification",
+      "category": "gossip-verification",
+      "severity": "info",
+      "match": {
+        "patterns": [
+          "Channel announcement verification deferred for ",
+          "Deferred channel announcement verification for "
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info",
+        "graph_channels"
+      ],
+      "report_title": "Channel announcement verification deferred",
+      "summary": "Verification of a received channel_announcement gossip message was deferred because the on-chain funding outpoint could not yet be resolved by the CKB chain client (Error::DeferredChannelAnnouncementVerification / VerifyBroadcastMessageError::DeferredChannelAnnouncementVerification). Usually transient while the local CKB node catches up to the announced channel.",
+      "fallback_summary": "Insufficient context; verify the local CKB node is synced and reachable. Persistent occurrences may indicate the announcement references a non-existent or pruned outpoint."
     },
     {
       "error_type": "NetworkGraphError",
@@ -927,6 +1037,46 @@
       "report_title": "CKB invoice error",
       "summary": "An invoice operation failed (Error::CkbInvoiceError / SettleInvoiceError). Covers create/get/cancel/settle paths.",
       "fallback_summary": "Insufficient context; verify the invoice's existence and current status via get_invoice."
+    },
+    {
+      "error_type": "InvoiceParseError",
+      "category": "invoice-parse",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Bech32 error:",
+          "Failed to parse amount:",
+          "Unknown currency:",
+          "Unknown si prefix:",
+          "Parsing failed with malformed HRP:",
+          "Too short data part",
+          "Unexpected end of tagged fields",
+          "Integer overflow error",
+          "Invalid recovery id",
+          "Invalid slice length:",
+          "Invalid signature",
+          "Invalid signature encoding",
+          "Invalid payee public key",
+          "Invoice is not signed",
+          "Duplicated attribute key:",
+          "Payment secret is required for MPP payments",
+          "Both payment_hash and payment_preimage are set",
+          "Neither payment_hash nor payment_preimage is set",
+          "Duplicated invoice found:",
+          "Description with length of \\d+ is too long",
+          "Deprecated attribute:",
+          "Failed to decompress invoice data:",
+          "Invoice data length \\d+ exceeds max length \\d+",
+          "Invalid UTF-8 in invoice "
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "CKB invoice parse / validation error",
+      "summary": "An invoice string could not be parsed, decompressed, or validated against its signature/attributes (InvoiceError variants in crates/fiber-types/src/invoice.rs). Distinct from CkbInvoiceError, which covers store-level invoice state (already-exists, already-paid, etc.).",
+      "fallback_summary": "Insufficient context; the caller likely supplied a malformed invoice string. Verify the encoded invoice and the chain currency (fibb/fibt/fibd)."
     },
     {
       "error_type": "InvalidParameter",
