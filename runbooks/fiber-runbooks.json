@@ -152,6 +152,26 @@
       "fallback_summary": "Insufficient context for live checks; likely a stuck TLC cleanup or peer disconnected case."
     },
     {
+      "error_type": "ReestablishChannelFailed",
+      "category": "channel-reestablish",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Failed to reestablish channel [0-9a-fx]+:",
+          "Failed to reestablish channel"
+        ],
+        "priority": 90
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Failed to reestablish channel",
+      "summary": "restore_offline_channel failed while trying to recover a channel actor after peer reconnection. Common causes are persisted channel state drifting from the peer's current state or network configuration; the inner error after the colon is the real cause and should take precedence when a more specific runbook also matches.",
+      "fallback_summary": "Insufficient context; inspect the channel_id and inner error to determine whether the persisted state is corrupted or the peer is misbehaving."
+    },
+    {
       "error_type": "PaymentRelated",
       "category": "payment",
       "severity": "warning",
@@ -710,6 +730,25 @@
       "fallback_summary": "Insufficient context; check CKB node connectivity, that the funding inputs/outputs are valid, and (for RBF rejections) that the configured fee rate is high enough to replace the existing tx in the mempool."
     },
     {
+      "error_type": "ClosingTxConfirmFailed",
+      "category": "closing-tx",
+      "severity": "critical",
+      "match": {
+        "patterns": [
+          "Closing transaction .* failed to be confirmed with final status"
+        ],
+        "priority": 90
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed"
+      ],
+      "report_title": "Closing transaction failed to confirm",
+      "summary": "A closing transaction (cooperative close or force-close commitment tx) failed to reach final on-chain confirmation on the InFlightCkbTxKind::Closing path. The peer may already be offline, the chain transaction may have been replaced, or a watchtower may have failed to get the transaction on chain in time.",
+      "fallback_summary": "Insufficient context for live checks; verify on-chain status of the closing tx and channel state via list_channels_include_closed."
+    },
+    {
       "error_type": "CkbRpcError",
       "category": "ckb-connectivity",
       "severity": "critical",
@@ -956,7 +995,12 @@
           "Failed to send (?:channel|network) actor message:",
           "Failed to in-flight tx actor message:",
           "Failed to spawn actor:",
-          "Failed to send message to (?:channel|network) actor:"
+          "Failed to send message to (?:channel|network) actor:",
+          "Failed to send fulfillment to upstream channel:",
+          "Failed to send failure to upstream channel:",
+          "failed to send tx .* because of rpc error:",
+          "failed to send tx .* because of ractor error:",
+          "Failed to send message to CKB chain actor:"
         ],
         "priority": 50
       },
@@ -966,6 +1010,40 @@
       "report_title": "Actor messaging / spawn error",
       "summary": "Sending a message to an internal ractor actor failed, or spawning one failed (Error::ChannelMessagingErr / NetworkMessagingErr / InFlightCkbTxActorMessagingErr / SpawnErr). The target actor may have stopped.",
       "fallback_summary": "Insufficient context; this often indicates a transient race during shutdown or reestablish."
+    },
+    {
+      "error_type": "IOError",
+      "category": "io",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "IO error:"
+        ],
+        "priority": 50
+      },
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "IO error",
+      "summary": "A std::io::Error bubbled up through the Fiber node as Error::IO. Typical sources are disk, socket, or stdin/stdout failures.",
+      "fallback_summary": "Insufficient context; check disk space, file permissions, network sockets, and recent system events."
+    },
+    {
+      "error_type": "SecretKeyFileError",
+      "category": "config",
+      "severity": "critical",
+      "match": {
+        "patterns": [
+          "Secret key file error:"
+        ],
+        "priority": 60
+      },
+      "queries": [
+        "node_info"
+      ],
+      "report_title": "Secret key file error",
+      "summary": "Reading or parsing the Fiber node's secret key file failed (Error::SecretKeyFileError). The node typically cannot start or sign correctly in this state.",
+      "fallback_summary": "Insufficient context; verify the secret key file exists, has the right permissions, and is well-formed."
     },
     {
       "error_type": "Unknown",
