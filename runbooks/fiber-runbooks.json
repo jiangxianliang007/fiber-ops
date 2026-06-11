@@ -96,7 +96,8 @@
       "severity": "warning",
       "match": {
         "patterns": [
-          "Channel not found error:\\s*Hash256\\("
+          "Channel not found error:\\s*Hash256\\(",
+          "channel Hash256\\([^)]*\\) not found"
         ],
         "priority": 50
       },
@@ -692,7 +693,11 @@
           "Funding transaction failed:",
           "failed to send funding tx",
           "Failed to build unsigned funding tx",
-          "Failed to fund channel"
+          "Failed to fund channel",
+          "Funding transaction .* failed to be confirmed",
+          "failed to be confirmed with final status Rejected",
+          "RBFRejected",
+          "RBF rejected:"
         ],
         "priority": 60
       },
@@ -701,8 +706,8 @@
         "list_channels"
       ],
       "report_title": "Funding transaction error",
-      "summary": "Funding transaction construction, verification, signing, or submission failed (Error::FundingError).",
-      "fallback_summary": "Insufficient context; check CKB node connectivity and that the funding inputs/outputs are valid."
+      "summary": "Funding transaction construction, verification, signing, submission, or post-submission confirmation failed (Error::FundingError). Also covers RBF rejection from in_flight_ckb_tx_actor when the replacement fee is below the required minimum.",
+      "fallback_summary": "Insufficient context; check CKB node connectivity, that the funding inputs/outputs are valid, and (for RBF rejections) that the configured fee rate is high enough to replace the existing tx in the mempool."
     },
     {
       "error_type": "CkbRpcError",
@@ -950,7 +955,8 @@
         "patterns": [
           "Failed to send (?:channel|network) actor message:",
           "Failed to in-flight tx actor message:",
-          "Failed to spawn actor:"
+          "Failed to spawn actor:",
+          "Failed to send message to (?:channel|network) actor:"
         ],
         "priority": 50
       },
