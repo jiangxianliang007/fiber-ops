@@ -152,6 +152,28 @@
       "fallback_summary": "Insufficient context for live checks; likely a stuck TLC cleanup or peer disconnected case."
     },
     {
+      "error_type": "HoldTlcTimeoutSettlement",
+      "category": "payment-hold-tlc",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Remove TLCs for payment hash Hash256\\([^)]*\\) because of error HoldTlcTimeout",
+          "Remove TLCs for payment hash .* because of error HoldTlcTimeout"
+        ],
+        "priority": 90
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed",
+        "get_payment_by_hash",
+        "get_invoice_by_hash"
+      ],
+      "report_title": "HoldTlcTimeout while settling TLC set",
+      "summary": "SettleTlcSetCommand rejected or removed a TLC set with HoldTlcTimeout while logging \"Remove TLCs for payment hash ... because of error HoldTlcTimeout\". Common causes include hold TLC timeout, invoice already being in Received/Paid or otherwise no longer open for this TLC set, and extra/duplicate TLCs being cleaned up after non-MPP or MPP payment requirements were already satisfied.",
+      "fallback_summary": "Inspect the payment_hash via get_payment and get_invoice, then check related channels for stuck TLCs. This warning often means a timed-out hold TLC, a late retry against an already progressed invoice, or overpaid extra TLCs being rejected during settlement."
+    },
+    {
       "error_type": "ReestablishChannelFailed",
       "category": "channel-reestablish",
       "severity": "warning",
