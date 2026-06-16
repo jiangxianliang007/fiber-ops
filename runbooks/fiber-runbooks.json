@@ -97,6 +97,7 @@
       "match": {
         "patterns": [
           "Channel not found error:\\s*Hash256\\(",
+          "Received a channel message for a channel that is not created with peer:",
           "channel Hash256\\([^)]*\\) not found"
         ],
         "priority": 50
@@ -107,8 +108,8 @@
         "list_channels_include_closed"
       ],
       "report_title": "Channel not found",
-      "summary": "A channel-related operation referenced a channel actor/state that could not be found (Error::ChannelNotFound).",
-      "fallback_summary": "Insufficient context for live checks; likely closed, peer disconnected, or internal channel-state inconsistency."
+      "summary": "A channel-related operation referenced a channel actor/state that could not be found (Error::ChannelNotFound), including received channel messages for a channel not present locally.",
+      "fallback_summary": "Insufficient context for live checks; likely closed, peer disconnected, a message arrived before local channel creation completed, or internal channel-state inconsistency."
     },
     {
       "error_type": "TlcAmountExceedLimit",
