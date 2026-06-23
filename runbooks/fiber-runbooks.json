@@ -597,6 +597,27 @@
       "fallback_summary": "Insufficient context; upstream is using an outdated channel_update or fee policy diverged."
     },
     {
+      "error_type": "OutpointChannelMapMissing",
+      "category": "payment-forwarding",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "Channel id not found in outpoint_channel_map with OutPoint\\(",
+          "Channel id not found in outpoint_channel_map .* are we connected to the peer\\?"
+        ],
+        "priority": 90
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels_include_closed",
+        "graph_channels"
+      ],
+      "report_title": "Channel outpoint not found while forwarding onion packet",
+      "summary": "While forwarding an onion packet, the funding outpoint from the payment payload could not be mapped to an online local channel in outpoint_channel_map. Fiber returns UnknownNextPeer on this path.",
+      "fallback_summary": "Insufficient context; check whether the peer or channel is disconnected, whether the local channel/outpoint map is stale, or whether the sender used an outdated route."
+    },
+    {
       "error_type": "TlcForwardingError",
       "category": "payment-forwarding",
       "severity": "warning",
