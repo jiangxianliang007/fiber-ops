@@ -602,7 +602,7 @@
       "severity": "warning",
       "match": {
         "patterns": [
-          "Channel id not found in outpoint_channel_map with OutPoint\\(",
+          "Channel id not found in outpoint_channel_map with OutPoint\\([^)]*\\)",
           "Channel id not found in outpoint_channel_map .* are we connected to the peer\\?"
         ],
         "priority": 90
