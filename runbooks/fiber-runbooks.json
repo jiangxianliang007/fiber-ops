@@ -997,6 +997,28 @@
       "fallback_summary": "Insufficient context; graph may be stale, target unreachable, or fee/expiry constraints unsatisfiable."
     },
     {
+      "error_type": "PaymentRouteInsufficientBalance",
+      "category": "payment-route",
+      "severity": "warning",
+      "match": {
+        "patterns": [
+          "build_payment_routes failed to build route: Insufficient balance:",
+          "Insufficient balance: max outbound liquidity \\d+ is insufficient, required amount: \\d+"
+        ],
+        "priority": 90
+      },
+      "queries": [
+        "node_info",
+        "list_peers",
+        "list_channels",
+        "graph_channels",
+        "get_payment_by_hash"
+      ],
+      "report_title": "Insufficient outbound liquidity to build payment route",
+      "summary": "Payment route construction failed because outbound liquidity was insufficient for the requested amount. Common causes include local channel outbound balance being zero/too low, stale graph/channel stats, or trampoline/hop hints/route constraints eliminating all usable paths.",
+      "fallback_summary": "Insufficient context; inspect payment_hash, local channel balances, graph_channels, and trampoline/hop hints or route constraints."
+    },
+    {
       "error_type": "BuildPaymentRouteError",
       "category": "pathfinding",
       "severity": "warning",
@@ -1022,7 +1044,9 @@
       "severity": "warning",
       "match": {
         "patterns": [
-          "Send payment error:"
+          "Send payment error:",
+          "Failed to send payment:\\s*SendPaymentError\\(",
+          "Failed to send payment:.*TemporaryNodeFailure"
         ],
         "priority": 30
       },
